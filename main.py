@@ -1,5 +1,3 @@
-#! /usr/bin/env python
-
 import os
 import time
 import sys
@@ -11,8 +9,6 @@ from torch import nn, optim, cuda, backends
 from torch.autograd import Variable
 from torch.utils import data
 from torchvision import datasets, transforms, utils
-backends.cudnn.benchmark = True
-
 
 class MaskedConv2d(nn.Conv2d):
     def __init__(self, mask_type, *args, **kwargs):
@@ -39,43 +35,39 @@ net = nn.Sequential(
     MaskedConv2d('B', fm, fm, 7, 1, 3, bias=False), nn.BatchNorm2d(fm), nn.ReLU(True),
     MaskedConv2d('B', fm, fm, 7, 1, 3, bias=False), nn.BatchNorm2d(fm), nn.ReLU(True),
     nn.Conv2d(fm, 256, 1))
-print net
-net.cuda()
+print(net)
 
 tr = data.DataLoader(datasets.MNIST('data', train=True, download=True, transform=transforms.ToTensor()),
                      batch_size=128, shuffle=True, num_workers=1, pin_memory=True)
 te = data.DataLoader(datasets.MNIST('data', train=False, download=True, transform=transforms.ToTensor()),
                      batch_size=128, shuffle=False, num_workers=1, pin_memory=True)
-sample = torch.Tensor(144, 1, 28, 28).cuda()
+sample = torch.Tensor(144, 1, 28, 28)
 optimizer = optim.Adam(net.parameters())
 for epoch in range(25):
     # train
     err_tr = []
-    cuda.synchronize()
     time_tr = time.time()
     net.train(True)
     for input, _ in tr:
-        input = Variable(input.cuda(async=True))
+        input = Variable(input)
         target = Variable((input.data[:,0] * 255).long())
         loss = F.cross_entropy(net(input), target)
-        err_tr.append(loss.data[0])
+        err_tr.append(loss.item())
+        print(loss.item())
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-    cuda.synchronize()
     time_tr = time.time() - time_tr
 
     # compute error on test set
     err_te = []
-    cuda.synchronize()
     time_te = time.time()
     net.train(False)
     for input, _ in te:
-        input = Variable(input.cuda(async=True), volatile=True)
+        input = Variable(input)
         target = Variable((input.data[:,0] * 255).long())
         loss = F.cross_entropy(net(input), target)
         err_te.append(loss.data[0])
-    cuda.synchronize()
     time_te = time.time() - time_te
 
     # sample
@@ -88,5 +80,5 @@ for epoch in range(25):
             sample[:, :, i, j] = torch.multinomial(probs, 1).float() / 255.
     utils.save_image(sample, 'sample_{:02d}.png'.format(epoch), nrow=12, padding=0)
 
-    print 'epoch={}; nll_tr={:.7f}; nll_te={:.7f}; time_tr={:.1f}s; time_te={:.1f}s'.format(
-        epoch, np.mean(err_tr), np.mean(err_te), time_tr, time_te)
+    print('epoch={}; nll_tr={:.7f}; nll_te={:.7f}; time_tr={:.1f}s; time_te={:.1f}s'.format(
+        epoch, np.mean(err_tr), np.mean(err_te), time_tr, time_te))
